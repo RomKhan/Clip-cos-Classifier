@@ -28,15 +28,14 @@ def get_clip_embeddings(device, dataset):
 
     for images, batch_image_paths, batch_offers_idx in tqdm(dataloader):
         with torch.no_grad():
-            image_embeddings.append(nn.functional.normalize(model.encode_image(images.to(device))).to('cpu'))
+            image_embeddings.append(nn.functional.normalize(model.encode_image(images.to(device))).to('cpu').to(torch.float32).numpy())
             logits_per_image, logits_per_text = model(images.to(device), text)
             batch_probs = logits_per_image.softmax(dim=-1).cpu().numpy()
             probs.extend(batch_probs)
             image_paths.extend(batch_image_paths)
             offers_idx.extend(batch_offers_idx)
-        break
 
-    image_embeddings = torch.cat(image_embeddings, dim=0).to(torch.float32).numpy()
+    image_embeddings = np.concatenate(image_embeddings, axis=0)
 
     return probs, image_paths, offers_idx, image_embeddings
 
@@ -52,15 +51,15 @@ def get_resnext_embeddings(device, dataset):
     image_embeddings = []
     for images, batch_image_paths, batch_offers_idx in tqdm(dataloader):
         with torch.no_grad():
-            image_embeddings.append(nn.functional.normalize(model(images.to(device))).to('cpu'))
-        break
+            image_embeddings.append(nn.functional.normalize(model(images.to(device))).to('cpu').to(torch.float32).numpy())
 
-    image_embeddings = torch.cat(image_embeddings, dim=0).to(torch.float32).numpy()
+    image_embeddings = np.concatenate(image_embeddings, axis=0)
     return image_embeddings
 
 
-def process_new_images(device, images_path, db):
-    dataset = ImageDataset(root_dir=images_path, database=db)
+def process_new_images(device, images_path, max_offers, db):
+    dataset = ImageDataset(root_dir=images_path, database=db, max_offers=max_offers)
+    print(f'dataset consist of {len(dataset)} elements')
     print('getting clip embeddings:')
     probs, image_paths, offers_idx, clip_image_embeddings = get_clip_embeddings(device, dataset)
     print('getting resnext embeddings:')
@@ -181,15 +180,18 @@ def save_target(path_to_dataset, used_clip_embeddings, target, idx, paths):
 if __name__ == '__main__':
     device = sys.argv[1]
     images_path = sys.argv[2]
-    path_to_dataset = sys.argv[3]
+    max_offers = sys.argv[3]
+    if max_offers == '-':
+        max_offers = None
+    path_to_dataset = sys.argv[4]
     if path_to_dataset == '-':
         path_to_dataset = ''
-    path_to_relevants = sys.argv[4]
+    path_to_relevants = sys.argv[5]
     if path_to_relevants == '-':
         path_to_relevants = ''
     db_path = ''
-    if len(sys.argv) > 5:
-        db_path = sys.argv[5]
+    if len(sys.argv) > 6:
+        db_path = sys.argv[6]
 
     db = Database(db_path)
     if os.path.exists(os.path.join(path_to_dataset, 'target.hdf5')):
@@ -197,13 +199,13 @@ if __name__ == '__main__':
             prev_image_count = f['idx'][-1]
     else:
         prev_image_count = 0
-    process_new_images(device, images_path, db)
+    process_new_images(device, images_path, int(max_offers), db)
     current_image_count = db.get_images_count()
 
     while current_image_count >= prev_image_count:
         i_start = current_image_count - 1000000
         i_end = current_image_count
-        _, clip_embeddings, resnext_embeddings, probs, paths = zip(*db.select_with_condition('image', i_start, i_end))
+        i, clip_embeddings, resnext_embeddings, probs, paths = zip(*db.select_with_condition('image', i_start, i_end))
         clip_embeddings = np.stack(list(clip_embeddings), axis=0)
         resnext_embeddings = np.stack(list(resnext_embeddings), axis=0)
         probs = np.stack(list(probs))

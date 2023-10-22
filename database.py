@@ -4,10 +4,11 @@ import io
 import os
 
 class Database():
-    def __init__(self, destination_path=None):
+    def __init__(self, destination_path=None, mode=None):
         sqlite3.register_adapter(np.ndarray, self.adapt_array)
         sqlite3.register_converter("array", self.convert_array)
         self.destination_path = destination_path
+        self.mode = mode
         self.db_conn = self.get_or_create_db()
         self.cursor = None
         self.cursor_counter = 0
@@ -24,14 +25,30 @@ class Database():
         return np.load(out)
 
     def get_or_create_db(self):
-        conn = sqlite3.connect(os.path.join(self.destination_path, 'image_embeddings.db'), detect_types=sqlite3.PARSE_DECLTYPES)
+        if self.mode != 'filter db':
+            conn = sqlite3.connect(os.path.join(self.destination_path, 'image_embeddings.db'), detect_types=sqlite3.PARSE_DECLTYPES)
+        else:
+            conn = sqlite3.connect(os.path.join(self.destination_path, 'filter_images.db'), detect_types=sqlite3.PARSE_DECLTYPES)
         cursor = conn.cursor()
-        cursor.execute(
-            '''CREATE TABLE IF NOT EXISTS image (image_id INTEGER PRIMARY KEY, clip_embedding array, resnext_embedding array, logits array, path TEXT)''')
+        if self.mode != 'filter db':
+            cursor.execute(
+                '''CREATE TABLE IF NOT EXISTS image (image_id INTEGER PRIMARY KEY, clip_embedding array, resnext_embedding array, logits array, path TEXT)''')
+        else:
+            cursor.execute('''CREATE TABLE IF NOT EXISTS image (image_id INTEGER PRIMARY KEY, clip_embedding array, path TEXT)''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS offer (offer_id TEXT PRIMARY KEY, images_id array)''')
         cursor.close()
         conn.commit()
         return conn
+
+    def get_offer_idx(self):
+        cursor = self.db_conn.cursor()
+        cursor.execute(f"SELECT * FROM offer")
+        idx = cursor.fetchall()
+        cursor.close()
+        idx_dict = {}
+        for pair in idx:
+            idx_dict[pair[0]] = pair[1]
+        return idx_dict
 
     def get_images_count(self):
         cursor = self.db_conn.cursor()
@@ -76,8 +93,12 @@ class Database():
         cursor = self.db_conn.cursor()
         idx = []
         for image in images:
-            clip_embedding, resnext_embedding, logits, path = image
-            cursor.execute("INSERT INTO image (clip_embedding, resnext_embedding, logits, path) VALUES (?, ?, ?, ?)", (clip_embedding, resnext_embedding, logits, path))
+            if self.mode != 'filter db':
+                clip_embedding, resnext_embedding, logits, path = image
+                cursor.execute("INSERT INTO image (clip_embedding, resnext_embedding, logits, path) VALUES (?, ?, ?, ?)", (clip_embedding, resnext_embedding, logits, path))
+            else:
+                clip_embedding, path = image
+                cursor.execute("INSERT INTO image (clip_embedding, path) VALUES (?, ?)",(clip_embedding, path))
             idx.append(cursor.lastrowid)
         self.db_conn.commit()
         cursor.close()
@@ -97,9 +118,11 @@ class Database():
         cursor = conn.cursor()
         cursor.execute('''CREATE TABLE IF NOT EXISTS relevants (image_id INTEGER PRIMARY KEY, clip_relevants array, resnext_relevants array)''')
         conn.commit()
+        cursor.execute("SELECT * FROM relevants")
+        rows = cursor.fetchall()
         keys = list(clip_relevants.keys())
         for key in keys:
-            cursor.execute("INSERT INTO relevants (image_id, clip_relevants, resnext_relevants) VALUES (?, ?, ?)",(key, clip_relevants[key], resnext_relevants[key]))
+            cursor.execute("INSERT OR REPLACE INTO relevants (image_id, clip_relevants, resnext_relevants) VALUES (?, ?, ?)",(key+1, clip_relevants[key], resnext_relevants[key]))
 
         conn.commit()
         cursor.close()
