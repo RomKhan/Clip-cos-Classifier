@@ -16,7 +16,7 @@ import numpy as np
 def get_clip_embeddings(device, dataset):
     model, preprocess = clip.load('ViT-L/14', device=device)
     dataset.transform = preprocess
-    dataloader = DataLoader(dataset, batch_size=64)
+    dataloader = DataLoader(dataset, batch_size=128)
     text = clip.tokenize(["indoor", "room", "kitchen", "bedroom", "dining room", "living room", "lobby",
                           "concierge area", "elevator", "stairwell", "vestibule", "outdoor", "building",
                           "park", "tree", "grass", "road", "floor plan", "blueprint", "underground parking"]).to(device)
@@ -24,11 +24,13 @@ def get_clip_embeddings(device, dataset):
     probs = []
     image_paths = []
     offers_idx = []
-    image_embeddings = []
+    image_embeddings = np.zeros((len(dataset), 768), dtype='float32')
+    counter = 0
 
     for images, batch_image_paths, batch_offers_idx in tqdm(dataloader):
         with torch.no_grad():
-            image_embeddings.append(nn.functional.normalize(model.encode_image(images.to(device))).to('cpu').to(torch.float32).numpy())
+            image_embeddings[counter: counter+len(images)] = nn.functional.normalize(model.encode_image(images.to(device))).to('cpu').to(torch.float32).numpy()
+            counter += len(images)
             logits_per_image, logits_per_text = model(images.to(device), text)
             batch_probs = logits_per_image.softmax(dim=-1).cpu().numpy()
             probs.extend(batch_probs)
@@ -48,12 +50,14 @@ def get_resnext_embeddings(device, dataset):
     dataset.transform = ResNeXt101_64X4D_Weights.IMAGENET1K_V1.transforms()
     dataloader = DataLoader(dataset, batch_size=128)
 
-    image_embeddings = []
+    image_embeddings = np.zeros((len(dataset), 2048), dtype='float32')
+    counter = 0
     for images, batch_image_paths, batch_offers_idx in tqdm(dataloader):
         with torch.no_grad():
-            image_embeddings.append(nn.functional.normalize(model(images.to(device))).to('cpu').to(torch.float32).numpy())
+            image_embeddings[counter: counter+len(images)] = nn.functional.normalize(model(images.to(device))).to('cpu').to(torch.float32).numpy()
+            counter += len(images)
 
-    image_embeddings = np.concatenate(image_embeddings, axis=0)
+
     return image_embeddings
 
 
