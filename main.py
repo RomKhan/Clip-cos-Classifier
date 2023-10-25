@@ -37,8 +37,6 @@ def get_clip_embeddings(device, dataset):
             image_paths.extend(batch_image_paths)
             offers_idx.extend(batch_offers_idx)
 
-    image_embeddings = np.concatenate(image_embeddings, axis=0)
-
     return probs, image_paths, offers_idx, image_embeddings
 
 
@@ -205,6 +203,10 @@ if __name__ == '__main__':
         prev_image_count = 0
     process_new_images(device, images_path, int(max_offers), db)
     current_image_count = db.get_images_count()
+
+    if current_image_count < 400000:
+        print('too small for relevants')
+        sys.exit(1)
 
     while current_image_count >= prev_image_count:
         i_start = current_image_count - 1000000
