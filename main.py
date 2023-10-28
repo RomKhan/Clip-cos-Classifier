@@ -101,13 +101,15 @@ if __name__ == '__main__':
     process_new_images(device, images_path, int(max_offers), db, path_to_dataset)
     current_image_count = get_dataset_count(path_to_dataset, 'embeddings')
 
-    if current_image_count < 4:
+    if current_image_count < 400000:
         print('too small for relevants')
         sys.exit(1)
 
     while current_image_count >= prev_image_count:
         i_start = max(0, current_image_count - 1000000)
         i_end = current_image_count
+        if i_end - i_start < 400000:
+            i_end = 400000
 
         print('getting relevants for clip embeddings')
         with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
