@@ -2,6 +2,7 @@ import sqlite3
 import numpy as np
 import io
 import os
+from scipy.sparse import csr_array
 
 class Database():
     def __init__(self, destination_path=None, mode=None):
@@ -30,11 +31,6 @@ class Database():
         else:
             conn = sqlite3.connect(os.path.join(self.destination_path, 'filter_images.db'), detect_types=sqlite3.PARSE_DECLTYPES)
         cursor = conn.cursor()
-        if self.mode != 'filter db':
-            cursor.execute(
-                '''CREATE TABLE IF NOT EXISTS image (image_id INTEGER PRIMARY KEY, clip_embedding array, resnext_embedding array, logits array, path TEXT)''')
-        else:
-            cursor.execute('''CREATE TABLE IF NOT EXISTS image (image_id INTEGER PRIMARY KEY, clip_embedding array, path TEXT)''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS offer (offer_id TEXT PRIMARY KEY, images_id array)''')
         cursor.close()
         conn.commit()
@@ -50,14 +46,6 @@ class Database():
             idx_dict[pair[0]] = pair[1]
         return idx_dict
 
-    def get_images_count(self):
-        cursor = self.db_conn.cursor()
-        cursor.execute(f"SELECT COUNT(*) FROM image")
-        count = cursor.fetchone()
-        self.db_conn.commit()
-        cursor.close()
-        return count[0]
-
     def select(self, key, table, cursor=None):
         is_none = True if cursor is None else False
         if is_none:
@@ -67,16 +55,6 @@ class Database():
         if is_none:
             cursor.close()
         return row
-
-    def select_with_condition(self, table, lower_border, higher_border, cursor=None):
-        is_none = True if cursor is None else False
-        if is_none:
-            cursor = self.db_conn.cursor()
-        cursor.execute(f"SELECT * FROM {table} WHERE {table}_id > ? and {table}_id <= ?", (lower_border, higher_border))
-        rows = cursor.fetchall()
-        if is_none:
-            cursor.close()
-        return rows
 
     def select_multiple(self, key, table):
         if self.cursor is not None and self.cursor_counter > 10000:
@@ -89,20 +67,22 @@ class Database():
             self.cursor_counter = 0
         return self.select(key, table, self.cursor)
 
-    def insert_offer_images(self, images):
-        cursor = self.db_conn.cursor()
-        idx = []
-        for image in images:
-            if self.mode != 'filter db':
-                clip_embedding, resnext_embedding, logits, path = image
-                cursor.execute("INSERT INTO image (clip_embedding, resnext_embedding, logits, path) VALUES (?, ?, ?, ?)", (clip_embedding, resnext_embedding, logits, path))
-            else:
-                clip_embedding, path = image
-                cursor.execute("INSERT INTO image (clip_embedding, path) VALUES (?, ?)",(clip_embedding, path))
-            idx.append(cursor.lastrowid)
-        self.db_conn.commit()
-        cursor.close()
-        return np.array(idx, dtype='uint32')
+    # def insert_offer_images(self, images):
+    #     cursor = self.db_conn.cursor()
+    #     idx = []
+    #     for image in images:
+    #         if self.mode != 'filter db':
+    #             clip_embedding, resnext_embedding, logits, path = image
+    #             # clip_embedding = clip_embedding.toarray()
+    #             resnext_embedding = resnext_embedding.toarray()
+    #             cursor.execute("INSERT INTO image (clip_embedding, resnext_embedding, logits, path) VALUES (?, ?, ?, ?)", (clip_embedding, resnext_embedding, logits, path))
+    #         else:
+    #             clip_embedding, path = image
+    #             cursor.execute("INSERT INTO image (clip_embedding, path) VALUES (?, ?)",(clip_embedding, path))
+    #         idx.append(cursor.lastrowid)
+    #     self.db_conn.commit()
+    #     cursor.close()
+    #     return np.array(idx, dtype='uint32')
 
     def insert_offers(self, offers):
         cursor = self.db_conn.cursor()

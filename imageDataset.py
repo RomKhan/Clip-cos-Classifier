@@ -38,3 +38,16 @@ class ImageDataset(Dataset):
             image = self.transform(image)
 
         return image, image_path, offer_id
+
+
+class FilterImageDataset(Dataset):
+    def __init__(self, keys, embeddings, paths):
+        self.keys = keys
+        self.embeddings = embeddings
+        self.paths = paths
+
+    def __len__(self):
+        return len(self.keys)
+
+    def __getitem__(self, idx):
+        return self.keys[idx], self.embeddings[idx], self.paths[idx]

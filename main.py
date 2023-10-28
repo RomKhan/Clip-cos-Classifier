@@ -3,83 +3,11 @@ import sys
 import h5py
 
 from database import Database
-from imageDataset import ImageDataset
-import clip
-from torch.utils.data import DataLoader
-import torch
 from tqdm import tqdm
-from torch import nn
-from torchvision.models import ResNeXt101_64X4D_Weights, resnext101_64x4d
 import numpy as np
-
-
-def get_clip_embeddings(device, dataset):
-    model, preprocess = clip.load('ViT-L/14', device=device)
-    dataset.transform = preprocess
-    dataloader = DataLoader(dataset, batch_size=128)
-    text = clip.tokenize(["indoor", "room", "kitchen", "bedroom", "dining room", "living room", "lobby",
-                          "concierge area", "elevator", "stairwell", "vestibule", "outdoor", "building",
-                          "park", "tree", "grass", "road", "floor plan", "blueprint", "underground parking"]).to(device)
-
-    probs = []
-    image_paths = []
-    offers_idx = []
-    image_embeddings = np.zeros((len(dataset), 768), dtype='float32')
-    counter = 0
-
-    for images, batch_image_paths, batch_offers_idx in tqdm(dataloader):
-        with torch.no_grad():
-            image_embeddings[counter: counter+len(images)] = nn.functional.normalize(model.encode_image(images.to(device))).to('cpu').to(torch.float32).numpy()
-            counter += len(images)
-            logits_per_image, logits_per_text = model(images.to(device), text)
-            batch_probs = logits_per_image.softmax(dim=-1).cpu().numpy()
-            probs.extend(batch_probs)
-            image_paths.extend(batch_image_paths)
-            offers_idx.extend(batch_offers_idx)
-
-    return probs, image_paths, offers_idx, image_embeddings
-
-
-def get_resnext_embeddings(device, dataset):
-    model = resnext101_64x4d(weights=ResNeXt101_64X4D_Weights.IMAGENET1K_V1)
-    model.fc = nn.Identity()
-    model.eval()
-    model.to(device)
-    dataset.transform = ResNeXt101_64X4D_Weights.IMAGENET1K_V1.transforms()
-    dataloader = DataLoader(dataset, batch_size=128)
-
-    image_embeddings = np.zeros((len(dataset), 2048), dtype='float32')
-    counter = 0
-    for images, batch_image_paths, batch_offers_idx in tqdm(dataloader):
-        with torch.no_grad():
-            image_embeddings[counter: counter+len(images)] = nn.functional.normalize(model(images.to(device))).to('cpu').to(torch.float32).numpy()
-            counter += len(images)
-
-
-    return image_embeddings
-
-
-def process_new_images(device, images_path, max_offers, db):
-    dataset = ImageDataset(root_dir=images_path, database=db, max_offers=max_offers)
-    print(f'dataset consist of {len(dataset)} elements')
-    print('getting clip embeddings:')
-    probs, image_paths, offers_idx, clip_image_embeddings = get_clip_embeddings(device, dataset)
-    print('getting resnext embeddings:')
-    resnext_image_embeddings = get_resnext_embeddings(device, dataset)
-
-    offers_images = {}
-    for i in range(len(offers_idx)):
-        if offers_idx[i] not in offers_images:
-            offers_images[offers_idx[i]] = []
-        image = (clip_image_embeddings[i], resnext_image_embeddings[i], probs[i], image_paths[i])
-        offers_images[offers_idx[i]].append(image)
-
-    offers = []
-    for key in offers_images:
-        images_id = db.insert_offer_images(offers_images[key])
-        offer_id = key
-        offers.append((offer_id, images_id))
-    db.insert_offers(offers)
+from scipy.sparse import lil_matrix
+from hdf5_work import save_target, get_dataset_count
+from embeddings_processing import process_new_images
 
 def get_clip_relevants(stacked_image_embeddings, target_idx):
     banned_idx = set()
@@ -103,7 +31,7 @@ def get_clip_relevants(stacked_image_embeddings, target_idx):
 def get_resnext_relevants(stacked_image_embeddings, relevant_idx_clip):
     relevant_idx = {}
     for i in tqdm(relevant_idx_clip):
-        cosine_distances = 1.0 - stacked_image_embeddings[i].dot(stacked_image_embeddings.T)
+        cosine_distances = 1.0 - np.squeeze(stacked_image_embeddings[i].dot(stacked_image_embeddings.T).toarray())
         condition = (cosine_distances < 0.45) & (cosine_distances > 0.04)
         idx = np.where(condition)[0]
         sorted_idx = idx[np.argsort(cosine_distances[idx])[:100]]
@@ -151,33 +79,6 @@ def create_dataset(probs, relevant_idx, relevant_idx_resnext):
             tagret.append((used_idx[i], 0))
     return tagret
 
-def save_target(path_to_dataset, used_clip_embeddings, target, idx, paths):
-    full_path = os.path.join(path_to_dataset, 'target.hdf5')
-    if not os.path.exists(full_path):
-        with h5py.File(full_path, 'w') as f:
-            f.create_dataset('clip features', data=used_clip_embeddings, compression="gzip", maxshape=(None,None))
-            f.create_dataset('target', data=target, dtype='i1', maxshape=(None,))
-            f.create_dataset('idx', data=idx, dtype='i8', maxshape=(None,))
-            asciiList = np.stack([n.encode("ascii", "ignore") for n in paths], axis=0)
-            dt = h5py.string_dtype(encoding='ascii')
-            f.create_dataset('paths', chunks=True, dtype=dt, data=asciiList, maxshape=(None,))
-    else:
-        with h5py.File(full_path, 'r+') as f:
-            x_data = f['clip features']
-            y_data = f['target']
-            idx_data = f['idx']
-            paths_data = f['paths']
-            prev_len = len(x_data)
-            x_data.resize((prev_len + len(idx), used_clip_embeddings.shape[-1]))
-            y_data.resize((prev_len + len(idx),))
-            paths_data.resize((prev_len + len(idx),))
-            idx_data.resize((prev_len + len(idx),))
-            x_data[prev_len:] = used_clip_embeddings
-            y_data[prev_len:] = target
-            asciiList = np.stack([n.encode("ascii", "ignore") for n in paths], axis=0)
-            paths_data[prev_len:] = asciiList
-            idx_data[prev_len:] = idx
-
 
 if __name__ == '__main__':
     device = sys.argv[1]
@@ -196,31 +97,40 @@ if __name__ == '__main__':
         db_path = sys.argv[6]
 
     db = Database(db_path)
-    if os.path.exists(os.path.join(path_to_dataset, 'target.hdf5')):
-        with h5py.File(os.path.join(path_to_dataset, 'target.hdf5'), 'r') as f:
-            prev_image_count = f['idx'][-1]
-    else:
-        prev_image_count = 0
-    process_new_images(device, images_path, int(max_offers), db)
-    current_image_count = db.get_images_count()
+    prev_image_count = get_dataset_count(path_to_dataset, 'target', 'idx')
+    process_new_images(device, images_path, int(max_offers), db, path_to_dataset)
+    current_image_count = get_dataset_count(path_to_dataset, 'embeddings')
 
-    if current_image_count < 400000:
+    if current_image_count < 4:
         print('too small for relevants')
         sys.exit(1)
 
     while current_image_count >= prev_image_count:
-        i_start = current_image_count - 1000000
+        i_start = max(0, current_image_count - 1000000)
         i_end = current_image_count
-        i, clip_embeddings, resnext_embeddings, probs, paths = zip(*db.select_with_condition('image', i_start, i_end))
-        clip_embeddings = np.stack(list(clip_embeddings), axis=0)
-        resnext_embeddings = np.stack(list(resnext_embeddings), axis=0)
-        probs = np.stack(list(probs))
-        paths = np.array(list(paths))
-        target_idx = range(min(clip_embeddings.shape[0]-(current_image_count - prev_image_count), 1000000), clip_embeddings.shape[0])
+
         print('getting relevants for clip embeddings')
+        with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
+            clip_data = f['clip embeddings']
+            probs_data = f['probs']
+            paths_data = f['paths']
+            clip_embeddings = clip_data[i_start:i_end]
+            probs = probs_data[i_start:i_end]
+            paths = paths_data[i_start:i_end]
+
+        target_idx = range(min(clip_embeddings.shape[0]-(current_image_count - prev_image_count), 1000000), clip_embeddings.shape[0])
         clip_relevants = get_clip_relevants(clip_embeddings, target_idx)
+
         print('getting relevants for resnext embeddings')
+        with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
+            resnext_data = f['resnext embeddings']
+            resnext_embeddings = lil_matrix((i_end-i_start, 2048), dtype='float32')
+            for i in range(0, i_end-i_start, 50000):
+                resnext_embeddings[i: i + 50000] = resnext_data[i_start+i:min(i_end, i_start+i+50000)]
+            resnext_embeddings = resnext_embeddings.tocsr()
+
         resnext_relevants = get_resnext_relevants(resnext_embeddings, clip_relevants)
+
         Database.save_relevants(path_to_relevants, clip_relevants, resnext_relevants)
         del resnext_embeddings
 
@@ -232,7 +142,7 @@ if __name__ == '__main__':
         del resnext_relevants
         del probs
 
-        save_target(path_to_dataset, clip_embeddings[idx], target, idx+1, paths[idx])
+        save_target(path_to_dataset, clip_embeddings[idx], target, idx, paths[idx])
         current_image_count -= 1000000
 
 
