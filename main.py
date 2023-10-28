@@ -106,10 +106,10 @@ if __name__ == '__main__':
         sys.exit(1)
 
     while current_image_count >= prev_image_count:
-        i_start = max(0, current_image_count - 1000000)
-        i_end = current_image_count
+        i_start = prev_image_count
+        i_end = min(current_image_count, prev_image_count + 1000000)
         if i_end - i_start < 400000:
-            i_end = 400000
+            i_start = max(current_image_count - 400000, 0)
 
         print('getting relevants for clip embeddings')
         with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
@@ -128,7 +128,7 @@ if __name__ == '__main__':
             resnext_data = f['resnext embeddings']
             resnext_embeddings = lil_matrix((i_end-i_start, 2048), dtype='float32')
             for i in range(0, i_end-i_start, 50000):
-                resnext_embeddings[i: i + 50000] = resnext_data[i_start+i:min(i_end, i_start+i+50000)]
+                resnext_embeddings[i: i+50000] = resnext_data[i_start+i:min(i_end, i_start+i+50000)]
             resnext_embeddings = resnext_embeddings.tocsr()
 
         resnext_relevants = get_resnext_relevants(resnext_embeddings, clip_relevants)
@@ -145,7 +145,7 @@ if __name__ == '__main__':
         del probs
 
         save_target(path_to_dataset, clip_embeddings[idx], target, idx, paths[idx])
-        current_image_count -= 1000000
+        prev_image_count += 1000000
 
 
 
