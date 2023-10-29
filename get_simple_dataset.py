@@ -5,9 +5,7 @@ import h5py
 from database import Database
 from tqdm import tqdm
 import numpy as np
-from scipy.sparse import lil_matrix
 from hdf5_work import save_target, get_dataset_count
-from embeddings_processing import process_new_images
 
 def get_clip_relevants(stacked_image_embeddings, target_idx):
     banned_idx = set()
@@ -28,10 +26,10 @@ def get_clip_relevants(stacked_image_embeddings, target_idx):
         relevant_idx[i] = np.stack((sorted_idx, values)).astype('float32')
     return relevant_idx
 
-def get_resnext_relevants(stacked_image_embeddings, relevant_idx_clip):
+def get_other_model_relevants(stacked_image_embeddings, relevant_idx_clip):
     relevant_idx = {}
     for i in tqdm(relevant_idx_clip):
-        cosine_distances = 1.0 - np.squeeze(stacked_image_embeddings[i].dot(stacked_image_embeddings.T).toarray())
+        cosine_distances = 1.0 - stacked_image_embeddings[i].dot(stacked_image_embeddings.T)
         condition = (cosine_distances < 0.45) & (cosine_distances > 0.04)
         idx = np.where(condition)[0]
         sorted_idx = idx[np.argsort(cosine_distances[idx])[:100]]
@@ -81,27 +79,21 @@ def create_dataset(probs, relevant_idx, relevant_idx_resnext):
 
 
 if __name__ == '__main__':
-    device = sys.argv[1]
-    images_path = sys.argv[2]
-    max_offers = sys.argv[3]
-    if max_offers == '-':
-        max_offers = None
-    path_to_dataset = sys.argv[4]
+    path_to_dataset = sys.argv[1]
     if path_to_dataset == '-':
         path_to_dataset = ''
-    path_to_relevants = sys.argv[5]
+    sim_model_name = sys.argv[2]
+    max_images = sys.argv[3]
+    if max_images == '-':
+        max_offers = None
+    path_to_relevants = sys.argv[4]
     if path_to_relevants == '-':
         path_to_relevants = ''
-    db_path = ''
-    if len(sys.argv) > 6:
-        db_path = sys.argv[6]
 
-    db = Database(db_path)
     prev_image_count = get_dataset_count(path_to_dataset, 'target', 'idx')
-    process_new_images(device, images_path, int(max_offers), db, path_to_dataset)
     current_image_count = get_dataset_count(path_to_dataset, 'embeddings')
 
-    if current_image_count < 400000:
+    if current_image_count < 4000000:
         print('too small for relevants')
         sys.exit(1)
 
@@ -122,45 +114,29 @@ if __name__ == '__main__':
 
         target_idx = range(min(clip_embeddings.shape[0]-(current_image_count - prev_image_count), 1000000), clip_embeddings.shape[0])
         clip_relevants = get_clip_relevants(clip_embeddings, target_idx)
+        del clip_embeddings
 
-        print('getting relevants for resnext embeddings')
+        print(f'getting relevants for {sim_model_name} embeddings')
         with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
-            resnext_data = f['resnext embeddings']
-            resnext_embeddings = lil_matrix((i_end-i_start, 2048), dtype='float32')
-            for i in range(0, i_end-i_start, 50000):
-                resnext_embeddings[i: i+50000] = resnext_data[i_start+i:min(i_end, i_start+i+50000)]
-            resnext_embeddings = resnext_embeddings.tocsr()
+            sim_model_data = f[f'{sim_model_name} embeddings']
+            sim_model_embeddings = sim_model_data[i_start:i_end]
 
-        resnext_relevants = get_resnext_relevants(resnext_embeddings, clip_relevants)
+        other_model_relevants = get_other_model_relevants(sim_model_embeddings, clip_relevants)
 
-        Database.save_relevants(path_to_relevants, clip_relevants, resnext_relevants)
-        del resnext_embeddings
+        #Database.save_relevants(path_to_relevants, clip_relevants, other_model_relevants)
+
+        del sim_model_embeddings
+        with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
+            clip_data = f['clip embeddings']
+            clip_embeddings = clip_data[i_start:i_end]
 
         print('creating dataset')
-        idx, target = zip(*create_dataset(probs, clip_relevants, resnext_relevants))
+        idx, target = zip(*create_dataset(probs, clip_relevants, other_model_relevants))
         idx = np.array(list(idx))
         target = np.array(list(target))
         del clip_relevants
-        del resnext_relevants
+        del other_model_relevants
         del probs
 
         save_target(path_to_dataset, clip_embeddings[idx], target, idx, paths[idx])
         prev_image_count += 1000000
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
