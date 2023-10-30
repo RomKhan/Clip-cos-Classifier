@@ -73,21 +73,21 @@ if __name__ == '__main__':
             target.extend(current_classes.tolist())
     target = np.array(target)
 
-    os.mkdir(os.path.join('output', 'indoor'))
-    os.mkdir(os.path.join('output', 'others'))
-
-    for i in range(len(target)):
-        key, embedding, image_path = images_dataset.keys[i], images_dataset.embeddings[i], images_dataset.paths[i]
-        image_path = image_path.decode("ascii")
-        label = target[i]
-        destination_path = os.path.join('output', 'indoor' if int(label) == 1 else 'others',
-                                        '_'.join(image_path.split('/')[-3:]))
-        shutil.copyfile(image_path, destination_path)
-
-    indoor_idx = np.where(target == 1)[0]
-    save_filter_embeddings(path_to_filter_embeddings,
-                           images_dataset.embeddings[indoor_idx],
-                           images_dataset.paths[indoor_idx])
+    # os.mkdir(os.path.join('output', 'indoor'))
+    # os.mkdir(os.path.join('output', 'others'))
+    #
+    # for i in range(len(target)):
+    #     key, embedding, image_path = images_dataset.keys[i], images_dataset.embeddings[i], images_dataset.paths[i]
+    #     image_path = image_path.decode("ascii")
+    #     label = target[i]
+    #     destination_path = os.path.join('output', 'indoor' if int(label) == 1 else 'others',
+    #                                     '_'.join(image_path.split('/')[-3:]))
+    #     shutil.copyfile(image_path, destination_path)
+    #
+    # indoor_idx = np.where(target == 1)[0]
+    # save_filter_embeddings(path_to_filter_embeddings,
+    #                        images_dataset.embeddings[indoor_idx],
+    #                        images_dataset.paths[indoor_idx])
 
     offers_images = {}
     for i in range(len(indoor_idx)):
@@ -103,18 +103,18 @@ if __name__ == '__main__':
         offers.append((offer_id, images_id))
     out_db.insert_offers(offers)
 
-    os.mkdir(os.path.join('output', 'indoor_v2'))
-
-    with h5py.File(os.path.join(path_to_filter_embeddings, 'filter_embeddings.hdf5'), 'r+') as f:
-        paths_data = f['paths']
-        d = paths_data[:]
-        for offer in offers:
-            _, idx = offer
-            paths = paths_data[idx]
-            for path in paths:
-                image_path = path.decode("ascii")
-                destination_path = os.path.join('output', 'indoor_v2','_'.join(image_path.split('/')[-3:]))
-                shutil.copyfile(image_path, destination_path)
+    # os.mkdir(os.path.join('output', 'indoor_v2'))
+    #
+    # with h5py.File(os.path.join(path_to_filter_embeddings, 'filter_embeddings.hdf5'), 'r+') as f:
+    #     paths_data = f['paths']
+    #     d = paths_data[:]
+    #     for offer in offers:
+    #         _, idx = offer
+    #         paths = paths_data[idx]
+    #         for path in paths:
+    #             image_path = path.decode("ascii")
+    #             destination_path = os.path.join('output', 'indoor_v2','_'.join(image_path.split('/')[-3:]))
+    #             shutil.copyfile(image_path, destination_path)
 
 
 
