@@ -7,6 +7,7 @@ import torch
 from tqdm import tqdm
 from torch import nn
 from torchvision.models import ResNeXt101_64X4D_Weights, resnext101_64x4d
+from torchvision.models import ResNet152_Weights, resnet152
 import numpy as np
 from hdf5_work import save_clip_embeddings, save_other_model_embeddings, get_dataset_count
 
@@ -77,6 +78,14 @@ def get_resnext():
     transform = ResNeXt101_64X4D_Weights.IMAGENET1K_V1.transforms()
     return model, transform
 
+def get_resnet():
+    model = resnet152(weights=ResNet152_Weights.IMAGENET1K_V2)
+    model.fc = nn.Identity()
+    model.eval()
+    model.to(device)
+    transform = ResNet152_Weights.IMAGENET1K_V2.transforms()
+    return model, transform
+
 if __name__ == '__main__':
     device = sys.argv[1]
     model = sys.argv[2]
@@ -100,3 +109,7 @@ if __name__ == '__main__':
         print('getting embeddings:')
         model, transform = get_resnext()
         get_simple_model_embeddings(device, path_to_dataset, model, 'resnext', 200000, transform)
+    elif model == 'resnet':
+        print('getting embeddings:')
+        model, transform = get_resnet()
+        get_simple_model_embeddings(device, path_to_dataset, model, 'resnet', 200000, transform)
