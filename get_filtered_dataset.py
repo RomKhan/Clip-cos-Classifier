@@ -83,11 +83,11 @@ if __name__ == '__main__':
     #     destination_path = os.path.join('output', 'indoor' if int(label) == 1 else 'others',
     #                                     '_'.join(image_path.split('/')[-3:]))
     #     shutil.copyfile(image_path, destination_path)
-    #
-    # indoor_idx = np.where(target == 1)[0]
-    # save_filter_embeddings(path_to_filter_embeddings,
-    #                        images_dataset.embeddings[indoor_idx],
-    #                        images_dataset.paths[indoor_idx])
+
+    indoor_idx = np.where(target == 1)[0]
+    save_filter_embeddings(path_to_filter_embeddings,
+                           images_dataset.embeddings[indoor_idx],
+                           images_dataset.paths[indoor_idx])
 
     offers_images = {}
     for i in range(len(indoor_idx)):
