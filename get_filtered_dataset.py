@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from imageDataset import FilterImageDataset
 from imageModel import ImageModel
 import numpy as np
-from hdf5_work import save_filter_embeddings
+from hdf5_work import save_filter_embeddings, get_dataset_count
 
 # def collate(batch):
 #     keys, embeddings, paths = zip(*batch)
@@ -85,6 +85,7 @@ if __name__ == '__main__':
     #     shutil.copyfile(image_path, destination_path)
 
     indoor_idx = np.where(target == 1)[0]
+    prev_image_count = get_dataset_count(path_to_filter_embeddings, 'filter_embeddings', 'paths')
     save_filter_embeddings(path_to_filter_embeddings,
                            images_dataset.embeddings[indoor_idx],
                            images_dataset.paths[indoor_idx])
@@ -94,7 +95,7 @@ if __name__ == '__main__':
         key = images_dataset.keys[indoor_idx[i]]
         if key not in offers_images:
             offers_images[key] = []
-        offers_images[key].append(i)
+        offers_images[key].append(prev_image_count + i)
 
     offers = []
     for key in offers_images:
