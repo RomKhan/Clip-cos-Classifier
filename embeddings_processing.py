@@ -29,6 +29,7 @@ def get_clip_embeddings(device, embeddings_path, db_path, images_path, max_offer
     image_embeddings = np.zeros((len(dataset), 768), dtype='float32')
     counter = 0
 
+    model.eval()
     for images, batch_image_paths, batch_offers_idx in tqdm(dataloader):
         with torch.no_grad():
             image_embeddings[counter: counter+len(images)] = nn.functional.normalize(model.encode_image(images.to(device))).to('cpu').to(torch.float32).numpy()
@@ -59,6 +60,7 @@ def get_simple_model_embeddings(device, embeddings_path, model, model_name, max_
     dataset = ImageSimpleDataset(embeddings_path, model_name, max_image, transform)
     print(f'dataset consist of {len(dataset)} elements')
     dataloader = DataLoader(dataset, batch_size=128)
+    model.eval()
 
     image_embeddings = np.zeros((len(dataset), 2048), dtype='float32')
     counter = 0

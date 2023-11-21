@@ -42,7 +42,7 @@ def softmax(x, temperature=1.0):
     return np.exp(x / temperature) / np.exp(x / temperature).sum()
 
 
-def create_dataset(probs, relevant_idx, relevant_idx_resnext):
+def create_dataset_with_other_model(probs, relevant_idx, other_model_idx_resnext):
     new_probs = np.zeros_like(probs)
     used_idx = []
     for i in tqdm(range(len(probs))):
@@ -51,13 +51,46 @@ def create_dataset(probs, relevant_idx, relevant_idx_resnext):
         used_idx.append(i)
         new_probs[i] = 0.85 * probs[i]
         idx_clip = relevant_idx[i][0].astype(np.int32)
-        idx_resnext = relevant_idx_resnext[i][0].astype(np.int32)[:100]
+        idx_resnext = other_model_idx_resnext[i][0].astype(np.int32)[:100]
         if len(idx_clip) > 0:
             softmax_clip = softmax(1 - relevant_idx[i][1], temperature=0.013)
-            softmax_resnext = softmax(1 - relevant_idx_resnext[i][1][:100], temperature=0.013)
+            softmax_resnext = softmax(1 - other_model_idx_resnext[i][1][:100], temperature=0.013)
             neighbor_clip_probs = softmax_clip @ probs[idx_clip]
             neighbor_resnext_probs = softmax_resnext @ probs[idx_resnext[:100]]
             new_probs[i] = 0.4 * probs[i] + 0.4 * neighbor_clip_probs + 0.2 * neighbor_resnext_probs
+
+    tagret = []
+    new_probs = np.column_stack((new_probs[:, :6].sum(axis=1, keepdims=True),
+                                 new_probs[:, 6:11].sum(axis=1, keepdims=True),
+                                 new_probs[:, 11:17].sum(axis=1, keepdims=True),
+                                 new_probs[:, 17:19].sum(axis=1, keepdims=True),
+                                 new_probs[:, 19:].sum(axis=1, keepdims=True),
+                                 ))
+    predicted_class = np.argmax(new_probs, axis=1)[used_idx]
+    probs = np.max(new_probs, axis=1)[used_idx]
+    for i in tqdm(range(len(predicted_class))):
+        if predicted_class[i] == 0 and probs[i] >= 0.8:
+            tagret.append((used_idx[i], 1))
+        elif predicted_class[i] == 1 and probs[i] >= 0.7:
+            tagret.append((used_idx[i], 0))
+        elif predicted_class[i] != 0 and predicted_class[i] != 1 and probs[i] >= 0.2:
+            tagret.append((used_idx[i], 0))
+    return tagret
+
+
+def create_dataset(probs, relevant_idx):
+    new_probs = np.zeros_like(probs)
+    used_idx = []
+    for i in tqdm(range(len(probs))):
+        if i not in relevant_idx:
+            continue
+        used_idx.append(i)
+        new_probs[i] = 0.85 * probs[i]
+        idx_clip = relevant_idx[i][0].astype(np.int32)
+        if len(idx_clip) > 0:
+            softmax_clip = softmax(1 - relevant_idx[i][1], temperature=0.013)
+            neighbor_clip_probs = softmax_clip @ probs[idx_clip]
+            new_probs[i] = 0.5 * probs[i] + 0.5 * neighbor_clip_probs
 
     tagret = []
     new_probs = np.column_stack((new_probs[:, :6].sum(axis=1, keepdims=True),
@@ -83,6 +116,8 @@ if __name__ == '__main__':
     if path_to_dataset == '-':
         path_to_dataset = ''
     sim_model_name = sys.argv[2]
+    if sim_model_name == '-':
+        sim_model_name = None
     max_images = sys.argv[3]
     if max_images == '-':
         max_offers = None
@@ -93,7 +128,7 @@ if __name__ == '__main__':
     prev_image_count = get_dataset_count(path_to_dataset, 'target', 'idx')
     current_image_count = get_dataset_count(path_to_dataset, 'embeddings')
 
-    if current_image_count < 4000000:
+    if current_image_count < 400000:
         print('too small for relevants')
         sys.exit(1)
 
@@ -116,22 +151,28 @@ if __name__ == '__main__':
         clip_relevants = get_clip_relevants(clip_embeddings, target_idx)
         del clip_embeddings
 
-        print(f'getting relevants for {sim_model_name} embeddings')
-        with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
-            sim_model_data = f[f'{sim_model_name} embeddings']
-            sim_model_embeddings = sim_model_data[i_start:i_end]
+        other_model_relevants = None
+        if sim_model_name is not None:
+            print(f'getting relevants for {sim_model_name} embeddings')
+            with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
+                sim_model_data = f[f'{sim_model_name} embeddings']
+                sim_model_embeddings = sim_model_data[i_start:i_end]
 
-        other_model_relevants = get_other_model_relevants(sim_model_embeddings, clip_relevants)
+            other_model_relevants = get_other_model_relevants(sim_model_embeddings, clip_relevants)
 
-        #Database.save_relevants(path_to_relevants, clip_relevants, other_model_relevants)
+            #Database.save_relevants(path_to_relevants, clip_relevants, other_model_relevants)
 
-        del sim_model_embeddings
+            del sim_model_embeddings
+
         with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
             clip_data = f['clip embeddings']
             clip_embeddings = clip_data[i_start:i_end]
 
         print('creating dataset')
-        idx, target = zip(*create_dataset(probs, clip_relevants, other_model_relevants))
+        if sim_model_name is None:
+            idx, target = zip(*create_dataset(probs, clip_relevants))
+        else:
+            idx, target = zip(*create_dataset_with_other_model(probs, clip_relevants, other_model_relevants))
         idx = np.array(list(idx))
         target = np.array(list(target))
         del clip_relevants

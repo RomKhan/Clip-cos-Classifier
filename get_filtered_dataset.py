@@ -64,6 +64,7 @@ if __name__ == '__main__':
 
     target = []
     temp = []
+    model.eval()
     for keys, embeddings, paths in tqdm(dataloader):
         with torch.no_grad():
             preds = model(embeddings.to(device))
@@ -71,6 +72,7 @@ if __name__ == '__main__':
             preds, current_classes = torch.max(F.softmax(preds, -1), dim=1)
             temp.extend(paths)
             target.extend(current_classes.tolist())
+    model.train()
     target = np.array(target)
 
     # os.mkdir(os.path.join('output', 'indoor'))
