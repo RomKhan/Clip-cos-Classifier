@@ -13,10 +13,6 @@ from imageModel import ImageModel
 import numpy as np
 from hdf5_work import save_filter_embeddings, get_dataset_count
 
-# def collate(batch):
-#     keys, embeddings, paths = zip(*batch)
-#     return list(keys), torch.Tensor(list(embeddings)), list(paths)
-
 if __name__ == '__main__':
     device = sys.argv[1]
     model_path = sys.argv[2]
@@ -32,6 +28,11 @@ if __name__ == '__main__':
     path_to_filter_embeddings = sys.argv[5]
     if path_to_filter_embeddings == '-':
         path_to_filter_embeddings = ''
+    is_test_mode = sys.argv[6]
+    if is_test_mode == '-':
+        is_test_mode = False
+    else:
+        is_test_mode = True
     model = torch.load(model_path, map_location=device).to(device)
     in_db = Database(in_db_path)
     out_db = Database(out_db_path, mode='filter db')
@@ -75,16 +76,22 @@ if __name__ == '__main__':
     model.train()
     target = np.array(target)
 
-    # os.mkdir(os.path.join('output', 'indoor'))
-    # os.mkdir(os.path.join('output', 'others'))
-    #
-    # for i in range(len(target)):
-    #     key, embedding, image_path = images_dataset.keys[i], images_dataset.embeddings[i], images_dataset.paths[i]
-    #     image_path = image_path.decode("ascii")
-    #     label = target[i]
-    #     destination_path = os.path.join('output', 'indoor' if int(label) == 1 else 'others',
-    #                                     '_'.join(image_path.split('/')[-3:]))
-    #     shutil.copyfile(image_path, destination_path)
+    if is_test_mode:
+        folder_path = f'{path_to_filter_embeddings}/test_output'
+        if not os.path.exists(folder_path):
+            os.mkdir(folder_path)
+        if not os.path.exists(os.path.join(folder_path, 'indoor')):
+            os.mkdir(os.path.join(folder_path, 'indoor'))
+        if not os.path.exists(os.path.join(folder_path, 'others')):
+            os.mkdir(os.path.join(folder_path, 'others'))
+
+        for i in range(len(target)):
+            key, embedding, image_path = images_dataset.keys[i], images_dataset.embeddings[i], images_dataset.paths[i]
+            image_path = image_path.decode("ascii")
+            label = target[i]
+            destination_path = os.path.join(folder_path, 'indoor' if int(label) == 1 else 'others',
+                                            '_'.join(image_path.split('/')[-3:]))
+            shutil.copyfile(image_path, destination_path)
 
     indoor_idx = np.where(target == 1)[0]
     prev_image_count = get_dataset_count(path_to_filter_embeddings, 'filter_embeddings', 'paths')
@@ -105,19 +112,6 @@ if __name__ == '__main__':
         offer_id = key
         offers.append((offer_id, images_id))
     out_db.insert_offers(offers)
-
-    # os.mkdir(os.path.join('output', 'indoor_v2'))
-    #
-    # with h5py.File(os.path.join(path_to_filter_embeddings, 'filter_embeddings.hdf5'), 'r+') as f:
-    #     paths_data = f['paths']
-    #     d = paths_data[:]
-    #     for offer in offers:
-    #         _, idx = offer
-    #         paths = paths_data[idx]
-    #         for path in paths:
-    #             image_path = path.decode("ascii")
-    #             destination_path = os.path.join('output', 'indoor_v2','_'.join(image_path.split('/')[-3:]))
-    #             shutil.copyfile(image_path, destination_path)
 
 
 

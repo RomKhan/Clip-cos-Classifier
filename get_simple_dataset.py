@@ -124,19 +124,27 @@ if __name__ == '__main__':
     path_to_relevants = sys.argv[4]
     if path_to_relevants == '-':
         path_to_relevants = ''
+    relevants_count = sys.argv[5]
+    if relevants_count == '-':
+        relevants_count = 400000
+    elif relevants_count.isnumeric():
+        relevants_count = int(relevants_count)
+    else:
+        print(f'{relevants_count} - не число')
+        sys.exit(1)
 
     prev_image_count = get_dataset_count(path_to_dataset, 'target', 'idx')
     current_image_count = get_dataset_count(path_to_dataset, 'embeddings')
 
-    if current_image_count < 400000:
+    if current_image_count < relevants_count:
         print('too small for relevants')
         sys.exit(1)
 
     while current_image_count >= prev_image_count:
         i_start = prev_image_count
         i_end = min(current_image_count, prev_image_count + 1000000)
-        if i_end - i_start < 400000:
-            i_start = max(current_image_count - 400000, 0)
+        if i_end - i_start < relevants_count:
+            i_start = max(current_image_count - relevants_count, 0)
 
         print('getting relevants for clip embeddings')
         with h5py.File(os.path.join(path_to_dataset, 'embeddings.hdf5'), 'r+') as f:
